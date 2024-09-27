@@ -3,24 +3,56 @@
 # Define a log file to record the actions
 LOGFILE="/var/log/monthly_cleanup.log"
 
+# Retrieve the system's hostname
+HOSTNAME=$(hostname) 
+
 # Function to log actions
 log_action() {
     echo "$(date +"%Y-%m-%d %H:%M:%S") - $1" | tee -a "$LOGFILE"
 }
 
+# Function to send a webhook notification with Markdown formatting
+send_webhook() {
+    local title=$1
+    local body=$2
+    local url=$3
+
+    # JSON payload with Markdown support
+    curl \
+    -H "Title: $title" \
+    -d "**Hostname**: $HOSTNAME
+    $body." \
+    -H "Markdown: yes" \
+    $url
+}
+
 # Function to show usage
 show_usage() {
-    echo "Usage: $0 [--upgrade]"
-    echo "--upgrade   Optionally upgrade system packages."
+    echo "Usage: $0 [--upgrade] [--send-webhook] [--webhook-url <url>]"
+    echo "--upgrade       Optionally upgrade system packages."
+    echo "--send-webhook  Send a notification to the webhook endpoint."
+    echo "--webhook-url   Specify the URL for the webhook (required if --send-webhook is used)."
 }
 
 # Parse the input arguments
 UPGRADE_SYSTEM=0
-for arg in "$@"; do
-    case $arg in
+SEND_WEBHOOK=0
+WEBHOOK_URL=""
+
+# Iterate through arguments using a loop
+while [[ $# -gt 0 ]]; do
+    case $1 in
         --upgrade)
             UPGRADE_SYSTEM=1
             shift
+            ;;
+        --send-webhook)
+            SEND_WEBHOOK=1
+            shift
+            ;;
+        --webhook-url)
+            WEBHOOK_URL="$2"
+            shift 2
             ;;
         *)
             show_usage
@@ -28,6 +60,13 @@ for arg in "$@"; do
             ;;
     esac
 done
+
+# Check if --send-webhook is used without specifying --webhook-url
+if [ $SEND_WEBHOOK -eq 1 ] && [ -z "$WEBHOOK_URL" ]; then
+    echo "Error: --send-webhook flag requires --webhook-url to be specified."
+    show_usage
+    exit 1
+fi
 
 log_action "Starting monthly server cleanup."
 
@@ -76,6 +115,12 @@ fi
 
 # End cleanup
 log_action "Server cleanup completed."
+
+# Send webhook notification if requested
+if [ $SEND_WEBHOOK -eq 1 ]; then
+    log_action "Sending notification to webhook: $WEBHOOK_URL"
+    send_webhook "Monthly Server Cleanup Report" "The monthly server cleanup has completed successfully. All unnecessary packages, logs, and temporary files have been cleaned up." "$WEBHOOK_URL"
+fi
 
 # Exit the script
 exit 0
